@@ -485,11 +485,12 @@ def schedule(
             if preset_exp_del:  # extract exp times and cadences from CSV file
                 time_seqs_lines = time_seqs.readlines()
                 exptime_placeholder = time_seqs_lines[0].split(",")
-                exptime_placeholder = [(float(x) * u.s) for x in exptime_placeholder]
-                exptime_placeholder = np.asarray(exptime_placeholder)
+                exptime_placeholder = np.asarray(
+                    [float(x) for x in exptime_placeholder]
+                )
                 cadence_vars = time_seqs_lines[1].split(",")
-                cadence_vars = [(float(y) * u.s) for y in cadence_vars]
-                cadence_vars = np.asarray(cadence_vars)
+                cadence_vars = np.asarray([float(y) for y in cadence_vars]) * u.min
+                cadence_vars = cadence_vars.to_value(u.s)
                 assert len(exptime_placeholder) == (len(cadence_vars) + 1), (
                     "Number of exposure times and number of inter-round delays must be consistent."
                 )
@@ -645,12 +646,10 @@ def schedule(
 
             with status("adding cuts"):
                 if preset_exp_del:
-                    exptime_sum = np.sum(
-                        exptime / u.s for exptime in exptime_placeholder
-                    )
+                    exptime_sum = np.sum(exptime_placeholder)
                     model.add_user_cut_constraint(
                         model.sum_vars_all_different(field_vars)
-                        <= (deadline - delay).to_value(u.s) / (exptime_sum * u.s)
+                        <= (deadline - delay).to_value(u.s) / (exptime_sum)
                     )
                 else:
                     model.add_user_cut_constraint(
