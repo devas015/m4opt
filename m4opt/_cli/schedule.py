@@ -563,7 +563,11 @@ def schedule(
                 elif preset_exp_del:
                     rhs1 = (
                         slew_time_s[:, np.newaxis] + exptime_placeholder[np.newaxis, :]
-                    ) * (field_vars[slew_i] + field_vars[slew_j] - 1)
+                    ) * (
+                        field_vars[slew_i, np.newaxis]
+                        + field_vars[slew_j, np.newaxis]
+                        - 1
+                    )
                     rhs2 = (
                         slew_time_s[:, np.newaxis]
                         + 0.5
@@ -571,7 +575,11 @@ def schedule(
                             exptime_placeholder[np.newaxis, 1:]
                             + exptime_placeholder[np.newaxis, :-1]
                         )
-                    ) * (field_vars[slew_i] + field_vars[slew_j] - 1)
+                    ) * (
+                        field_vars[slew_i, np.newaxis]
+                        + field_vars[slew_j, np.newaxis]
+                        - 1
+                    )
                 else:
                     rhs = (slew_time_s + exptime_min_s) * (
                         field_vars[slew_i] + field_vars[slew_j] - 1
