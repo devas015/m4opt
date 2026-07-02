@@ -311,7 +311,7 @@ def schedule(
             assert (len(cadence_vars) + 1) == visits, (
                 "Number of inter-round delays must be exactly one less than the number of visits."
             )
-            assert np.all(exptime_placeholder) >= exptime_min_s, (
+            assert np.all(exptime_placeholder >= exptime_min_s), (
                 "All values of exposure time must exceed the specified minimum exposure time."
             )
 
