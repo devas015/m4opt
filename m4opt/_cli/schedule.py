@@ -295,6 +295,26 @@ def schedule(
             dtype=object,
         )
 
+        if preset_exp_del:  # extract exp times and cadences from CSV file
+            time_seqs_lines = time_seqs.readlines()
+            exptime_placeholder = time_seqs_lines[0].split(",")
+            exptime_placeholder = np.asarray([float(x) for x in exptime_placeholder])
+            cadence_vars = time_seqs_lines[1].split(",")
+            cadence_vars = np.asarray([float(y) for y in cadence_vars]) * u.min
+            cadence_vars = cadence_vars.to_value(u.s)
+            assert len(exptime_placeholder) == (len(cadence_vars) + 1), (
+                "Number of exposure times and number of inter-round delays must be consistent."
+            )
+            assert len(exptime_placeholder) == visits, (
+                "Exactly one exposure time must be provided for each desired visit."
+            )
+            assert (len(cadence_vars) + 1) == visits, (
+                "Number of inter-round delays must be exactly one less than the number of visits."
+            )
+            assert np.all(exptime_placeholder) >= exptime_min_s, (
+                "All values of exposure time must exceed the specified minimum exposure time."
+            )
+
         # Keep only intervals that are at least as long as the exposure time.
         observable_intervals = np.asarray(
             [
@@ -482,24 +502,6 @@ def schedule(
                     else model.continuous_vars
                 )(n_fields, lb=exptime_min_s, ub=exptime_max_s)
                 exptime_region_vars = model.continuous_vars(n_regions)
-            if preset_exp_del:  # extract exp times and cadences from CSV file
-                time_seqs_lines = time_seqs.readlines()
-                exptime_placeholder = time_seqs_lines[0].split(",")
-                exptime_placeholder = np.asarray(
-                    [float(x) for x in exptime_placeholder]
-                )
-                cadence_vars = time_seqs_lines[1].split(",")
-                cadence_vars = np.asarray([float(y) for y in cadence_vars]) * u.min
-                cadence_vars = cadence_vars.to_value(u.s)
-                assert len(exptime_placeholder) == (len(cadence_vars) + 1), (
-                    "Number of exposure times and number of inter-round delays must be consistent."
-                )
-                assert len(exptime_placeholder) == visits, (
-                    "Exactly one exposure time must be provided for each desired visit."
-                )
-                assert (len(cadence_vars) + 1) == visits, (
-                    "Number of inter-round delays must be exactly one less than the number of visits."
-                )
 
             # Add constraints on observability windows for each field
             with status("adding field of regard constraints"):
@@ -584,8 +586,8 @@ def schedule(
                     rhs = (slew_time_s + exptime_min_s) * (
                         field_vars[slew_i] + field_vars[slew_j] - 1
                     )
-                    rhs1 = rhs
-                    rhs2 = rhs
+                    rhs1 = rhs[:, np.newaxis]
+                    rhs2 = rhs1
                 if filter_change:
                     model.add_constraints_(
                         model.abs(
@@ -754,6 +756,7 @@ def schedule(
                         "nside": nside,
                         "time_step": time_step,
                         "skymap": skymap.name,
+                        "filter-change": filter_change,
                         "visits": visits,
                         "exptime_min": exptime_min,
                         "exptime_max": exptime_max,
