@@ -311,7 +311,7 @@ def schedule(
             assert (len(cadence_vars) + 1) == visits, (
                 "Number of inter-round delays must be exactly one less than the number of visits."
             )
-            assert np.all(exptime_placeholder >= exptime_min_s), (
+            assert np.all(exptime_placeholder) >= exptime_min_s, (
                 "All values of exposure time must exceed the specified minimum exposure time."
             )
 
@@ -524,6 +524,8 @@ def schedule(
                             time_visit_vars - end + 0.5 * exptime <= 0
                         )
                     else:
+                        if preset_exp_del:
+                            exptime = exptime[:, np.newaxis]
                         visit_interval_vars = model.binary_vars(
                             (visits, len(intervals))
                         )
@@ -544,16 +546,22 @@ def schedule(
                 with status("adding cadence constraints"):
                     if adaptive_exptime:
                         rhs = cadence_s * field_vars + exptime_field_vars
+                        rhs = rhs[:, np.newaxis]
                     elif preset_exp_del:
-                        rhs = (
+                        exptime_and_cadence = (
                             0.5 * (exptime_placeholder[1:] + exptime_placeholder[:-1])
                             + cadence_vars
-                        ) * field_vars
+                        )
+                        rhs = (
+                            field_vars[:, np.newaxis]
+                            * exptime_and_cadence[np.newaxis, :]
+                        )
                     else:
                         rhs = (exptime_min_s + cadence_s) * field_vars
+                        rhs = rhs[:, np.newaxis]
                     model.add_constraints_(
                         (time_field_visit_vars[:, 1:] - time_field_visit_vars[:, :-1])
-                        >= rhs[:, np.newaxis]
+                        >= rhs
                     )
 
             with status("adding slew constraints"):
@@ -586,21 +594,23 @@ def schedule(
                     rhs = (slew_time_s + exptime_min_s) * (
                         field_vars[slew_i] + field_vars[slew_j] - 1
                     )
-                    rhs1 = rhs[:, np.newaxis]
-                    rhs2 = rhs1
                 if filter_change:
-                    model.add_constraints_(
-                        model.abs(
-                            time_field_visit_vars[slew_i, :]
-                            - time_field_visit_vars[slew_j, :]
-                        )
-                        >= rhs1
+                    same_visit_times = (
+                        time_field_visit_vars[slew_i, :]
+                        - time_field_visit_vars[slew_j, :]
                     )
-                    model.add_constraints_(
+                    consec_visit_times = (
                         time_field_visit_vars[slew_i, 1:]
                         - time_field_visit_vars[slew_j, :-1]
-                        >= rhs2
                     )
+                    if preset_exp_del:
+                        model.add_constraints_(model.abs(same_visit_times) >= rhs1)
+                        model.add_constraints_(consec_visit_times >= rhs2)
+                    else:
+                        model.add_constraints_(
+                            model.abs(np.transpose(same_visit_times)) >= rhs
+                        )
+                        model.add_constraints_(np.transpose(consec_visit_times) >= rhs)
                 else:
                     model.add_constraints_(
                         model.abs(
@@ -711,26 +721,31 @@ def schedule(
             else:
                 field_values = solution.get_values(field_vars) >= 0.5
                 time_field_visit_values = solution.get_values(time_field_visit_vars)
-                if adaptive_exptime:
-                    exptime_field_values = solution.get_values(exptime_field_vars)
-                    field_values &= exptime_field_values > 0
+                if not preset_exp_del:
+                    if adaptive_exptime:
+                        exptime_field_values = solution.get_values(exptime_field_vars)
+                        field_values &= exptime_field_values > 0
+                    else:
+                        exptime_field_values = np.full(n_fields, exptime_min_s)
+                    start_time_add = (
+                        time_field_visit_values[field_values]
+                        - 0.5 * exptime_field_values[field_values][:, np.newaxis]
+                    ).ravel() * u.s
+                    duration_tile = exptime_field_values[field_values][:, np.newaxis]
                 else:
-                    exptime_field_values = np.full(n_fields, exptime_min_s)
+                    exptime_field_values = exptime_placeholder
+                    start_time_add = (
+                        time_field_visit_values[field_values]
+                        - 0.5 * exptime_field_values[field_values]
+                    ).ravel() * u.s
+                    duration_tile = exptime_field_values[field_values]
                 objective_value = solution.get_objective_value()
 
             table = QTable(
                 {
                     "action": np.full(field_values.sum() * visits, "observe"),
-                    "start_time": obstimes[0]
-                    + (
-                        time_field_visit_values[field_values]
-                        - 0.5 * exptime_field_values[field_values][:, np.newaxis]
-                    ).ravel()
-                    * u.s,
-                    "duration": np.tile(
-                        exptime_field_values[field_values][:, np.newaxis], visits
-                    ).ravel()
-                    * u.s,
+                    "start_time": obstimes[0] + start_time_add,
+                    "duration": np.tile(duration_tile, visits).ravel() * u.s,
                     "target_coord": target_coords[
                         np.tile(np.flatnonzero(field_values)[:, np.newaxis], visits)
                     ].ravel(),
@@ -757,6 +772,7 @@ def schedule(
                         "time_step": time_step,
                         "skymap": skymap.name,
                         "filter-change": filter_change,
+                        "time-seqs": time_seqs,
                         "visits": visits,
                         "exptime_min": exptime_min,
                         "exptime_max": exptime_max,
