@@ -311,7 +311,7 @@ def schedule(
             assert (len(cadence_vars) + 1) == visits, (
                 "Number of inter-round delays must be exactly one less than the number of visits."
             )
-            assert np.all(exptime_placeholder) >= exptime_min_s, (
+            assert np.all(exptime_placeholder >= exptime_min_s), (
                 "All values of exposure time must exceed the specified minimum exposure time."
             )
 
@@ -475,6 +475,13 @@ def schedule(
             rolls[slew_i],
             rolls[slew_j],
         ).to_value(u.s)
+        if filter_change:
+            other_slew_time_s = mission.slew.time(
+                target_coords[slew_j],
+                target_coords[slew_i],
+                rolls[slew_j],
+                rolls[slew_i],
+            ).to_value(u.s)
 
     with Model(
         timelimit=timelimit, jobs=jobs, memory=memory, lowercutoff=cutoff
@@ -590,6 +597,26 @@ def schedule(
                         + field_vars[slew_j, np.newaxis]
                         - 1
                     )
+                    rhs3 = (
+                        other_slew_time_s[:, np.newaxis]
+                        + 0.5
+                        * (
+                            exptime_placeholder[np.newaxis, 1:]
+                            + exptime_placeholder[np.newaxis, :-1]
+                        )
+                    ) * (
+                        field_vars[slew_j, np.newaxis]
+                        + field_vars[slew_i, np.newaxis]
+                        - 1
+                    )
+                elif filter_change:
+                    rhs1 = (slew_time_s + exptime_min_s) * (
+                        field_vars[slew_i] + field_vars[slew_j] - 1
+                    )
+                    rhs2 = rhs1
+                    rhs3 = (other_slew_time_s + exptime_min_s) * (
+                        field_vars[slew_j] + field_vars[slew_i] - 1
+                    )
                 else:
                     rhs = (slew_time_s + exptime_min_s) * (
                         field_vars[slew_i] + field_vars[slew_j] - 1
@@ -599,18 +626,28 @@ def schedule(
                         time_field_visit_vars[slew_i, :]
                         - time_field_visit_vars[slew_j, :]
                     )
-                    consec_visit_times = (
+                    consec_visit_times1 = (
                         time_field_visit_vars[slew_i, 1:]
                         - time_field_visit_vars[slew_j, :-1]
                     )
+                    consec_visit_times2 = (
+                        time_field_visit_vars[slew_j, 1:]
+                        - time_field_visit_vars[slew_i, :-1]
+                    )
                     if preset_exp_del:
                         model.add_constraints_(model.abs(same_visit_times) >= rhs1)
-                        model.add_constraints_(consec_visit_times >= rhs2)
+                        model.add_constraints_(consec_visit_times1 >= rhs2)
+                        model.add_constraints_(consec_visit_times2 >= rhs3)
                     else:
                         model.add_constraints_(
-                            model.abs(np.transpose(same_visit_times)) >= rhs
+                            model.abs(np.transpose(same_visit_times)) >= rhs1
                         )
-                        model.add_constraints_(np.transpose(consec_visit_times) >= rhs)
+                        model.add_constraints_(
+                            np.transpose(consec_visit_times1) >= rhs2
+                        )
+                        model.add_constraints_(
+                            np.transpose(consec_visit_times2) >= rhs3
+                        )
                 else:
                     model.add_constraints_(
                         model.abs(
