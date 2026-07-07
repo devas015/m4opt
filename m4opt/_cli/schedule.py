@@ -808,7 +808,7 @@ def schedule(
                         "exptime_min": exptime_min,
                         "exptime_max": exptime_max,
                         "filter-change": filter_change,
-                        "time-seqs": time_seqs,
+                        "time-seqs": time_seqs.name if time_seqs is not None else None,
                         "absmag_mean": absmag_mean,
                         "absmag_stdev": absmag_stdev,
                         "appmag_dist": appmag_dist,
