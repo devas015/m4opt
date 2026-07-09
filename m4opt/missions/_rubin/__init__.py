@@ -3,7 +3,7 @@ from importlib import resources
 import numpy as np
 import yaml
 from astropy import units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, EarthLocation
 from astropy.table import Table
 from regions import RectangleSkyRegion, Regions
 
@@ -14,7 +14,7 @@ from ...constraints import (
     AtNightConstraint,
     MoonSeparationConstraint,
 )
-from ...dynamics import EigenAxisSlew
+from ...dynamics import GroundComponentSlew, GroundSlew
 from ...observer import EarthFixedObserverLocation
 from ...synphot import Detector, bandpass_from_svo
 from ...synphot.background import SkyBackground, ZodiacalBackground
@@ -41,6 +41,23 @@ def _make_fov():
         ]
     )
 
+#Initialize Components for Rubin's Slew Model
+rubin_loc = EarthLocation(lat=-30.244633 * u.deg, lon=-70.749417 * u.deg, height=2647 * u.m)
+mount_alt = GroundComponentSlew(max_angular_velocity=3.5 * u.deg / u.s, 
+                                max_angular_acceleration=3.5 * u.deg / u.s **2, 
+                                max_angular_jerk=14.0 * u.deg / u.s ** 3, 
+                                settling_time=3 * u.s)
+mount_az = GroundComponentSlew(max_angular_velocity=7 * u.deg / u.s, 
+                               max_angular_acceleration=7 * u.deg / u.s ** 2, 
+                               max_angular_jerk=28 * u.deg / u.s ** 3, 
+                               settling_time=3 * u.s)
+dome_alt = GroundComponentSlew(max_angular_velocity=1.75 * u.deg / u.s, 
+                               max_angular_acceleration=0.75 * u.deg / u.s ** 2, 
+                               max_angular_jerk=3 * u.deg / u.s ** 3)
+dome_az = GroundComponentSlew(max_angular_velocity=1.5 * u.deg / u.s, 
+                              max_angular_acceleration=0.875 * u.deg / u.s ** 2, 
+                              max_angular_jerk=3.5 * u.deg / u.s ** 3, 
+                              settling_time=1 * u.s)
 
 rubin = Mission(
     name="rubin",
@@ -54,14 +71,9 @@ rubin = Mission(
     observer_location=EarthFixedObserverLocation.of_site("LSST"),
     # Sky grid optimized for LSST’s large field of view.
     skygrid=skygrid.geodesic(3.5 * u.deg**2, class_="III", base="icosahedron"),
-    # FIXME: The Telescope Mount Assembly is faster than the dome for long slews.
-    # Therefore, we use the dome setup instead of the slew model
-    # https://github.com/lsst/rubin_scheduler/blob/main/rubin_scheduler/scheduler/model_observatory/kinem_model.py#L232-L233
-    slew=EigenAxisSlew(
-        max_angular_velocity=1.5 * u.deg / u.s,
-        max_angular_acceleration=0.75 * u.deg / u.s**2,
-        settling_time=1 * u.s,
-    ),
+    slew=GroundSlew(mount_alt, mount_az, dome_alt, dome_az, 
+                    coord_sys_is_equatorial=False, 
+                    location=rubin_loc),
     # Parameters from SMTN-002: https://smtn-002.lsst.io/
     detector=Detector(
         # Effective clear aperture diameter: 6.423 m
