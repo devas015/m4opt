@@ -751,6 +751,13 @@ def schedule(
                 time_field_visit_values = np.empty(time_field_visit_vars.shape)
                 exptime_field_values = np.empty(field_vars.shape)
                 objective_value = 0.0
+                start_time_add = (
+                    time_field_visit_values[field_values]
+                    - 0.5 * exptime_field_values[field_values][:, np.newaxis]
+                )
+                tiled_duration = np.tile(
+                    exptime_field_values[field_values][:, np.newaxis], visits
+                )
             else:
                 field_values = solution.get_values(field_vars) >= 0.5
                 time_field_visit_values = solution.get_values(time_field_visit_vars)
