@@ -5,7 +5,7 @@ from astropy.coordinates import SkyCoord
 from regions import Region, Regions
 
 from ..constraints import Constraint
-from ..dynamics import Slew, GroundSlew
+from ..dynamics import GroundSlew, Slew
 from ..observer import ObserverLocation
 from ..synphot import Detector
 
