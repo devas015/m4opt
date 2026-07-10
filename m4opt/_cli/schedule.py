@@ -852,16 +852,24 @@ def schedule(
             # Add slew segments to table.
             if len(table) > 0:
                 nrows = len(table) - 1
+                if isinstance(mission.slew, Slew):
+                    slew_durations = mission.slew.time(
+                        table["target_coord"][:-1],
+                        table["target_coord"][1:],
+                        table["roll"][:-1],
+                        table["roll"][1:],
+                    )
+                elif isinstance(mission.slew, GroundSlew):
+                    slew_durations = mission.slew.time(
+                        table["target_coord"][:-1],
+                        table["target_coord"][1:],
+                        event_time,
+                    )
                 slew_table = QTable(
                     {
                         "action": np.full(nrows, "slew"),
                         "start_time": (table["start_time"] + table["duration"])[:-1],
-                        "duration": mission.slew.time(
-                            table["target_coord"][:-1],
-                            table["target_coord"][1:],
-                            table["roll"][:-1],
-                            table["roll"][1:],
-                        ),
+                        "duration": slew_durations,
                     }
                 )
                 table = vstack(
