@@ -441,6 +441,7 @@ class GroundSlew:
             time2 = self.comp2.time(coord1.az, coord2.az)
             time3 = self.comp3.time(coord1.alt, coord2.alt) if self.comp3 else (0 * u.s)
             time4 = self.comp4.time(coord1.az, coord2.az) if self.comp4 else (0 * u.s)
-        times = [time1, time2, time3, time4]
-        slew_time = np.max(u.Quantity(times))
+        slew_time1 = np.maximum(time1, time2)
+        slew_time2 = np.maximum(time3, time4)
+        slew_time = np.maximum(slew_time1, slew_time2)
         return slew_time
