@@ -486,7 +486,6 @@ def schedule(
 
     with status("calculating slew times"):
         slew_i, slew_j = np.triu_indices(n_fields, 1)
-        event_time_array = np.full(len(slew_i), event_time)
         if isinstance(mission.slew, Slew):
             slew_time_s = mission.slew.time(
                 target_coords[slew_i],
@@ -498,7 +497,7 @@ def schedule(
             slew_time_s = mission.slew.time(
                 target_coords[slew_i],
                 target_coords[slew_j],
-                event_time_array,
+                event_time,
             ).to_value(u.s)
 
     with Model(
@@ -864,7 +863,7 @@ def schedule(
                     slew_durations = mission.slew.time(
                         table["target_coord"][:-1],
                         table["target_coord"][1:],
-                        event_time_array,
+                        event_time,
                     )
                 slew_table = QTable(
                     {
