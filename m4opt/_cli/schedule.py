@@ -486,14 +486,14 @@ def schedule(
 
     with status("calculating slew times"):
         slew_i, slew_j = np.triu_indices(n_fields, 1)
-        if mission.slew is Slew:
+        if isinstance(mission.slew, Slew):
             slew_time_s = mission.slew.time(
                 target_coords[slew_i],
                 target_coords[slew_j],
                 rolls[slew_i],
                 rolls[slew_j],
             ).to_value(u.s)
-        elif mission.slew is GroundSlew:
+        elif isinstance(mission.slew, GroundSlew):
             slew_time_s = mission.slew.time(
                 target_coords[slew_i],
                 target_coords[slew_j],
