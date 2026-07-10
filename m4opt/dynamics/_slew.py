@@ -4,8 +4,9 @@ from typing import override
 
 import numpy as np
 from astropy import units as u
-from astropy.coordinates import Angle, SkyCoord
+from astropy.coordinates import AltAz, Angle, EarthLocation, SkyCoord
 from astropy.coordinates.matrix_utilities import rotation_matrix
+from astropy.time import Time
 
 
 def matrix_trace(matrix):
@@ -302,3 +303,144 @@ class EigenAxisSlew(Slew, AngularMotionProfile):
             @ rotation_matrix(center2.lat, "y")
         )
         return Angle(np.arccos(0.5 * (matrix_trace(mat) - 1)) * u.rad).to(u.deg)
+
+
+@dataclass
+class GroundComponentSlew(AngularMotionProfile):
+    """Model slew time of a component of a ground-based telescope.
+
+    Ground-based telescopes can have multiple components with varying
+    angular accelerations, jerks, etc. These include components like the
+    dome along each axis and telescope mount in each axis. This model
+    assumes free/unlimited rotation.
+    """
+
+    def separation(
+        self,
+        init_pos: u.Quantity[u.physical.angle],
+        fin_pos: u.Quantity[u.physical.angle],
+    ) -> u.Quantity[u.physical.angle]:
+        """
+        Determine the angular separation between an initial and final
+        position.
+
+        Parameters
+        ----------
+        init_pos:
+            Initial position of the telescope/dome component.
+        fin_pos:
+            Final desired position of the telescope/dome component.
+
+        Returns
+        -------
+        separation:
+            Angular separation of the two positions.
+        """
+
+        separation = np.abs(Angle(fin_pos - init_pos).wrap_at(180 * u.deg))
+        return separation
+
+    def time(
+        self,
+        init_pos: u.Quantity[u.physical.angle],
+        fin_pos: u.Quantity[u.physical.angle],
+    ) -> u.Quantity[u.physical.time]:
+        """
+        Determine the slew time between an initial and final position.
+
+        Parameters
+        ----------
+        init_pos:
+            Initial position of the telescope/dome component.
+        fin_pos:
+            Final desired position of the telescope/dome component.
+
+        Returns
+        -------
+        :
+            Time to slew between the two positions.
+        """
+        return self._time(self.separation(init_pos, fin_pos))
+
+
+@dataclass
+class GroundSlew:
+    """Model slew time of a ground-based telescope that may have
+    components with pointing limits.
+
+    This class calculates a telescope's slew time between two positions
+    by taking the maximum of that of each individual component. If the
+    telescope is AltAz, a location must be specified.
+    """
+
+    comp1: GroundComponentSlew
+    comp2: GroundComponentSlew
+    comp3: GroundComponentSlew | None = None
+    comp4: GroundComponentSlew | None = None
+    """Components of the telescope separated by part and axis (e.g. mount 
+    in altitude, mount in azimuth, dome in altitude, and dome in azimuth 
+    may make up the four components). Only two are required. Odd 
+    components must be along the RA or Alt axes while even components 
+    must be along the Dec or Az axes."""
+
+    coord_sys_is_equatorial: bool = True
+    """If the telescope works in equatorial or altaz coordinates. Defaults
+    to equatorial coordinates. Units do not have to match the skymap's."""
+
+    location: EarthLocation | None = None
+    """Location of the observatory. Required if the telescope works in 
+    altaz coordinates."""
+
+    def time(
+        self,
+        coord1: SkyCoord,
+        coord2: SkyCoord,
+        time_obs: Time | None = None,
+    ) -> u.Quantity[u.physical.time]:
+        """
+        Determine the time to slew between two positions based
+        on the maximum of each component's slew time.
+
+        Parameters
+        ----------
+        coord1:
+            Initial coordinates (equatorial or AltAz).
+        coord2:
+            Final coordinates (equatorial or AltAz).
+        time_obs:
+            Time of observation. Required if any components
+            are in AltAz and not in equatorial coordinates.
+
+        Returns
+        -------
+        slew_time:
+            Time to slew between the two orientations based
+            on the maximum slew time across all components.
+        """
+        if not self.coord_sys_is_equatorial and (
+            (self.location is None) or (time_obs is None)
+        ):
+            raise ValueError(
+                "If the telescope is AltAz, a location and observation time must be specified."
+            )
+        if self.coord_sys_is_equatorial:
+            coord1 = coord1.transform_to("icrs")
+            coord2 = coord2.transform_to("icrs")
+            time1 = self.comp1.time(coord1.ra, coord2.ra)
+            time2 = self.comp2.time(coord1.dec, coord2.dec)
+            time3 = self.comp3.time(coord1.ra, coord2.ra) if self.comp3 else (0 * u.s)
+            time4 = self.comp4.time(coord1.dec, coord2.dec) if self.comp4 else (0 * u.s)
+        else:
+            coord1 = coord1.transform_to(
+                AltAz(obstime=time_obs, location=self.location)
+            )
+            coord2 = coord2.transform_to(
+                AltAz(obstime=time_obs, location=self.location)
+            )
+            time1 = self.comp1.time(coord1.alt, coord2.alt)
+            time2 = self.comp2.time(coord1.az, coord2.az)
+            time3 = self.comp3.time(coord1.alt, coord2.alt) if self.comp3 else (0 * u.s)
+            time4 = self.comp4.time(coord1.az, coord2.az) if self.comp4 else (0 * u.s)
+        times = [time1, time2, time3, time4]
+        slew_time = np.max(u.Quantity(times))
+        return slew_time
