@@ -225,7 +225,11 @@ def schedule(
     """Generate an observing plan for a GW sky map.
 
     \b
-    The scheduler has five modes:
+    The scheduler has four modes to be used with or without filter changes.
+
+    \b
+    Filter changes are enabled by passing --filter-change and enforce that
+    every field is visited k times before any field is visited k+1 times.
 
     \b
     1. Fixed exposure time. Every field has the same exposure time given by the
@@ -233,44 +237,33 @@ def schedule(
        --absmag-mean option.
 
     \b
-    2. Fixed exposure time with filter changes. Every field has the same
-        exposure time given by the --exptime-min option. Each field is visited
-        k times before any field is visited k+1 times. This mode is selected
-        if you omit the --absmag-mean option and choose --filter-change.
-
-    \b
-    3. Pre-set exposure times and inter-round delays. Exposure times and
-        delays between consecutive visits of the same field are pre-set in a
-        provided CSV file. All fields on their k visit will have the k exposure
-        time specified in the CSV file. Consecutive observations of the same
-        field (e.g. k and k+1 visits) will be separated by the k delay
-        specified in the CSV file. Each field is visited k times before any
-        field is visited k+1 times. This mode is selected if you choose
-        --filter-change and provide a file for the --test-seqs option.
-
-    \b
-    4. Variable exposure time. Each field may have a different exposure time,
+    2. Variable exposure time. Each field may have a different exposure time,
        adjusted for the posterior median distance along each line of sight.
        This mode is selected if you specify a value for the --absmag-mean
        option but also pass the --no-appmag-dist option.
 
     \b
-    5. Variable exposure time with an absolute magnitude distribution. Each
+    3. Variable exposure time with an absolute magnitude distribution. Each
        field may have a different exposure time, adjusted to optimize the
        detection probability given the posterior distance distribution and a
        Gaussian distribution of absolute magnitudes. This mode is selected if
        you specify the --absmag-mean option (and, optionally, the
        --absmag-stdev option).
+
+    \b
+    4. Pre-set exposure times and inter-round delays. Exposure times and delays
+        between consecutive visits of the same field are pre-set in a provided
+        CSV file. All fields on their k visit will have the k exposure time
+        specified in the CSV file. Consecutive observations of the same field
+        (e.g. k and k+1 visits) will be separated by the k delay specified in
+        the CSV file. This mode requires filter-change. This mode is selected
+        if you pass --filter-change and a file for the --test-seqs option.
     """
     adaptive_exptime = absmag_mean is not None
     preset_exp_del = time_seqs is not None
     if (filter_change is False) and preset_exp_del:
         raise NotImplementedError(
             "Sequences of exposure times and inter-round delays can only be used if the telescope has filter changes. Please pass --filter-change."
-        )
-    if adaptive_exptime and filter_change:
-        raise NotImplementedError(
-            "Adaptive exposure time cannot currently be used if the telescope has filter changes. Please choose one to implement."
         )
     if filters is not None:
         filter_lines = filters.readline()
@@ -604,6 +597,24 @@ def schedule(
 
             with status("adding slew constraints"):
                 p, q = full_indices(visits)
+                if filter_change:
+                    same_visit_times = model.abs(
+                        time_field_visit_vars[slew_i, :]
+                        - time_field_visit_vars[slew_j, :]
+                    )
+                    consec_visit_times1 = (
+                        time_field_visit_vars[slew_i, 1:]
+                        - time_field_visit_vars[slew_j, :-1]
+                    )
+                    consec_visit_times2 = (
+                        time_field_visit_vars[slew_j, 1:]
+                        - time_field_visit_vars[slew_i, :-1]
+                    )
+                else:
+                    lhs = model.abs(
+                        time_field_visit_vars[slew_i, p[:, np.newaxis]]
+                        - time_field_visit_vars[slew_j, q[:, np.newaxis]]
+                    )
                 if preset_exp_del:
                     rhs1 = (slew_time_s[:, np.newaxis] + exptime_seq[np.newaxis, :]) * (
                         field_vars[slew_i, np.newaxis]
@@ -619,15 +630,6 @@ def schedule(
                         + field_vars[slew_j, np.newaxis]
                         - 1
                     )
-                    rhs3 = (
-                        slew_time_s[:, np.newaxis]
-                        + 0.5
-                        * (exptime_seq[np.newaxis, 1:] + exptime_seq[np.newaxis, :-1])
-                    ) * (
-                        field_vars[slew_j, np.newaxis]
-                        + field_vars[slew_i, np.newaxis]
-                        - 1
-                    )
                 elif adaptive_exptime:
                     rhs = 0.5 * (
                         exptime_field_vars[slew_i] + exptime_field_vars[slew_j]
@@ -636,47 +638,16 @@ def schedule(
                     rhs = (slew_time_s + exptime_min_s) * (
                         field_vars[slew_i] + field_vars[slew_j] - 1
                     )
-                    if filter_change:
-                        rhs1 = rhs
-                        rhs2 = rhs
-                        rhs3 = (slew_time_s + exptime_min_s) * (
-                            field_vars[slew_j] + field_vars[slew_i] - 1
-                        )
-                if filter_change:
-                    same_visit_times = (
-                        time_field_visit_vars[slew_i, :]
-                        - time_field_visit_vars[slew_j, :]
-                    )
-                    consec_visit_times1 = (
-                        time_field_visit_vars[slew_i, 1:]
-                        - time_field_visit_vars[slew_j, :-1]
-                    )
-                    consec_visit_times2 = (
-                        time_field_visit_vars[slew_j, 1:]
-                        - time_field_visit_vars[slew_i, :-1]
-                    )
-                    if preset_exp_del:
-                        model.add_constraints_(model.abs(same_visit_times) >= rhs1)
-                        model.add_constraints_(consec_visit_times1 >= rhs2)
-                        model.add_constraints_(consec_visit_times2 >= rhs3)
-                    else:
-                        model.add_constraints_(
-                            model.abs(np.transpose(same_visit_times)) >= rhs1
-                        )
-                        model.add_constraints_(
-                            np.transpose(consec_visit_times1) >= rhs2
-                        )
-                        model.add_constraints_(
-                            np.transpose(consec_visit_times2) >= rhs3
-                        )
+                if preset_exp_del:
+                    model.add_constraints_(same_visit_times >= rhs1)
+                    model.add_constraints_(consec_visit_times1 >= rhs2)
+                    model.add_constraints_(consec_visit_times2 >= rhs2)
+                elif filter_change:
+                    model.add_constraints_(same_visit_times >= rhs)
+                    model.add_constraints_(consec_visit_times1 >= rhs)
+                    model.add_constraints_(consec_visit_times2 >= rhs)
                 else:
-                    model.add_constraints_(
-                        model.abs(
-                            time_field_visit_vars[slew_i, p[:, np.newaxis]]
-                            - time_field_visit_vars[slew_j, q[:, np.newaxis]]
-                        )
-                        >= rhs
-                    )
+                    model.add_constraints_(lhs >= rhs)
 
             if adaptive_exptime:
                 with status("adding exposure time constraints"):
