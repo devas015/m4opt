@@ -154,6 +154,12 @@ def schedule(
     filter_change: Annotated[
         bool, typer.Option(help="If the telescope has lengthy filter changes.")
     ] = False,
+    filters: Annotated[
+        typer.FileText | None,
+        typer.Option(
+            help="Optional CSV file with sequence of filters such that the k-th filter is used on the k-th visit."
+        ),
+    ] = None,
     visits: Annotated[int, typer.Option(min=1, help="Number of visits")] = 2,
     cadence: Annotated[
         u.Quantity,
@@ -266,6 +272,15 @@ def schedule(
         raise NotImplementedError(
             "Adaptive exposure time cannot currently be used if the telescope has filter changes. Please choose one to implement."
         )
+    if filters is not None:
+        filter_lines = filters.readline()
+        filter_lines = filter_lines.strip()
+        filter_list = filter_lines.split(",")
+        assert len(filter_list) == (visits), (
+            "Length of list of filters and the number of visits must be consistent."
+        )
+    else:
+        filter_list = np.full(visits, bandpass)
 
     """Schedule a target of opportunity observation."""
     with status("loading sky map"):
@@ -799,6 +814,7 @@ def schedule(
                     "roll": rolls[
                         np.tile(np.flatnonzero(field_values)[:, np.newaxis], visits)
                     ].ravel(),
+                    "filter": np.tile(filter_list, field_values.sum()).ravel(),
                 },
                 descriptions={
                     "action": "Action for the spacecraft",
@@ -806,6 +822,7 @@ def schedule(
                     "duration": "Duration of segment",
                     "target_coord": "Coordinates of the center of the FOV",
                     "roll": "Position angle of the FOV",
+                    "filter": "Filter of the observation",
                 },
                 meta={
                     "command": shlex.join(sys.argv),
@@ -827,6 +844,7 @@ def schedule(
                         "absmag_stdev": absmag_stdev,
                         "appmag_dist": appmag_dist,
                         "bandpass": bandpass,
+                        "filters": filters.name if filters is not None else None,
                         "snr": snr,
                         "cutoff": cutoff,
                     },
