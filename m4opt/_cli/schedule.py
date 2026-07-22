@@ -643,9 +643,9 @@ def schedule(
                     model.add_constraints_(consec_visit_times1 >= rhs2)
                     model.add_constraints_(consec_visit_times2 >= rhs2)
                 elif filter_change:
-                    model.add_constraints_(same_visit_times >= rhs)
-                    model.add_constraints_(consec_visit_times1 >= rhs)
-                    model.add_constraints_(consec_visit_times2 >= rhs)
+                    model.add_constraints_(np.transpose(same_visit_times) >= rhs)
+                    model.add_constraints_(np.transpose(consec_visit_times1) >= rhs)
+                    model.add_constraints_(np.transpose(consec_visit_times2) >= rhs)
                 else:
                     model.add_constraints_(lhs >= rhs)
 
