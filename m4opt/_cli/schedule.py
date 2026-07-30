@@ -6,7 +6,7 @@ import numpy as np
 import synphot
 import typer
 from astropy import units as u
-from astropy.coordinates import ICRS, Distance, SkyCoord
+from astropy.coordinates import ICRS, Distance, SkyCoord, EarthLocation
 from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy_healpix import HEALPix
@@ -837,6 +837,7 @@ def schedule(
                 name="observer_location",
             )
             table["observer_location"].info.description = "Position of the spacecraft"
+            table["observer_location"].info.__class__ = EarthLocation
 
             # Add slew segments to table.
             if len(table) > 0:
