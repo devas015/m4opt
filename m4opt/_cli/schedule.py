@@ -837,7 +837,7 @@ def schedule(
                 name="observer_location",
             )
             table["observer_location"].info.description = "Position of the spacecraft"
-            table["observer_location"].meta.__class__ = EarthLocation
+            table["observer_location"].__class__ = EarthLocation
 
             # Add slew segments to table.
             if len(table) > 0:
