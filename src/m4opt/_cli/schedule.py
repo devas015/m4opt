@@ -270,11 +270,8 @@ def schedule(
     \b
     4. Pre-set exposure times and inter-round delays. Exposure times and delays
         between consecutive visits of the same field are pre-set in a
-        provided ECSV file. All fields on their k visit will have the kth exposure
-        time specified in the ECSV file. Consecutive observations of the same
-        field (e.g. k and k+1 visits) will be separated by the kth delay
-        specified in the CSV file. This mode is selected if you repeat the 
-        --bandpass option and provide a file for the --filt_seqs option.
+        provided ECSV file. This mode is selected if you repeat the 
+        --bandpass option and provide a file for the --filt-seqs option.
 
     \b
     Repeating the --bandpass option makes successive visits cycle through the
@@ -292,10 +289,8 @@ def schedule(
         filter_sequences = QTable.read(filt_seqs, format="ascii.ecsv")
         if len(filter_sequences) != 1:
             filter_sequences = filter_sequences[filter_sequences["Skymap"] == skymap.name]
-        exptime_seq = filter_sequences["ExpTimes"].flatten()
-        cadence_seq = filter_sequences["Cadences"].flatten()
-        exptime_seq_s = exptime_seq.to_value(u.s)
-        cadence_seq_s = cadence_seq.to_value(u.s)
+        exptime_seq_s = filter_sequences["ExpTimes"]._to_value(u.s).flatten()
+        cadence_seq_s = filter_sequences["Cadences"]._to_value(u.s).flatten()
         assert len(exptime_seq_s) == (len(cadence_seq_s) + 1), (
             "Number of exposure times and number of inter-round delays must be consistent."
         )
