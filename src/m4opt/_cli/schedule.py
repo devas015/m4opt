@@ -177,6 +177,12 @@ def schedule(
         u.Quantity,
         typer.Option(help="Minimum time separation between visits"),
     ] = 30 * u.min,
+    filt_seqs: Annotated[
+        typer.FileBinaryRead | None,
+        typer.Option(
+            help="Optional ECSV file for a telescope with filter changes with a sequence of exposure times and inter-round delays. Column names must be 'Skymap', 'ExpTimes', and 'Cadences'."
+        ),
+    ] = None,    
     nside: Annotated[int, typer.Option(help="HEALPix resolution")] = 512,
     max_fields: Annotated[
         int,
@@ -240,7 +246,7 @@ def schedule(
     Generate an observing plan for a GW sky map.
 
     \b
-    The scheduler has three modes:
+    The scheduler has four modes:
 
     \b
     1. Fixed exposure time. Every field has the same exposure time given by the
@@ -262,6 +268,15 @@ def schedule(
        --absmag-stdev option).
 
     \b
+    4. Pre-set exposure times and inter-round delays. Exposure times and delays
+        between consecutive visits of the same field are pre-set in a
+        provided ECSV file. All fields on their k visit will have the kth exposure
+        time specified in the ECSV file. Consecutive observations of the same
+        field (e.g. k and k+1 visits) will be separated by the kth delay
+        specified in the CSV file. This mode is selected if you repeat the 
+        --bandpass option and provide a file for the --filt_seqs option.
+
+    \b
     Repeating the --bandpass option makes successive visits cycle through the
     bandpasses; for example, --bandpass g --bandpass r observes every field in g
     and then every field in r. Visits are grouped into contiguous blocks of a single
@@ -270,20 +285,49 @@ def schedule(
     boundary however many fields are observed.
     """
     adaptive_exptime = absmag_mean is not None
+    preset_seqs = filt_seqs is not None
+
+    # Extract exposure times and cadences from ECSV file, if any
+    if preset_seqs: 
+        filter_sequences = QTable.read(filt_seqs, format="ascii.ecsv")
+        if len(filter_sequences) != 1:
+            filter_sequences = filter_sequences[filter_sequences["Skymap"] == skymap.name]
+        exptime_seq = filter_sequences["ExpTimes"].flatten()
+        cadence_seq = filter_sequences["Cadences"].flatten()
+        exptime_seq_s = exptime_seq.to_value(u.s)
+        cadence_seq_s = cadence_seq.to_value(u.s)
+        assert len(exptime_seq_s) == (len(cadence_seq_s) + 1), (
+            "Number of exposure times and number of inter-round delays must be consistent."
+        )
+        assert len(exptime_seq_s) == visits, (
+            "Exactly one exposure time must be provided for each desired visit."
+        )
+        assert (len(cadence_seq_s) + 1) == visits, (
+            "Number of inter-round delays must be exactly one less than the number of visits."
+        )
+        assert np.all(exptime_seq_s >= exptime_min_s), (
+            "All values of exposure time must equal or exceed the specified minimum exposure time."
+        )
 
     # Successive visits cycle through the requested bandpasses, so that
     # --bandpass g --bandpass r over three visits gives g, r, g.
     visit_bandpasses = [
         bandpass[i % len(bandpass)] if bandpass else None for i in range(visits)
     ]
-    visit_exptime_min_s = u.Quantity(
-        [exptime_min[i % len(exptime_min)] for i in range(visits)]
-    ).to_value(u.s)
+    if preset_seqs:
+        visit_exptime_min_s = exptime_seq_s
+    else: 
+        visit_exptime_min_s = u.Quantity(
+            [exptime_min[i % len(exptime_min)] for i in range(visits)]
+        ).to_value(u.s)
     if adaptive_exptime and bandpass is not None and len(bandpass) > 1:
         raise NotImplementedError(
             "A variable exposure time is not supported with more than one bandpass."
         )
     filter_changes = [lhs != rhs for lhs, rhs in pairwise(visit_bandpasses)]
+    if preset_seqs and not any(filter_changes):
+        raise NotImplementedError("Preset sequences of exposure times and delays can only be used if filter changes are present.")
+
     with status("loading sky map"):
         hpx = HEALPix(nside, frame=ICRS(), order="nested")
         skymap_moc = read_sky_map(skymap, moc=True)
@@ -576,6 +620,10 @@ def schedule(
                         rhs = (cadence_s * field_vars + exptime_field_vars)[
                             :, np.newaxis
                         ]
+                    elif preset_seqs:
+                        rhs = np.multiply.outer(
+                            field_vars, cadence_seq_s + mean_consecutive_exptime_s
+                        )
                     else:
                         rhs = np.multiply.outer(
                             field_vars, cadence_s + mean_consecutive_exptime_s
@@ -801,6 +849,7 @@ def schedule(
                         "visits": visits,
                         "exptime_min": exptime_min,
                         "exptime_max": exptime_max,
+                        "filt_seqs": filt_seqs.name if filt_seqs is not None else None,
                         "absmag_mean": absmag_mean,
                         "absmag_stdev": absmag_stdev,
                         "appmag_dist": appmag_dist,
