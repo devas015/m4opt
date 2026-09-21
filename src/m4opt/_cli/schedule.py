@@ -1,6 +1,7 @@
 import shlex
 import sys
 from itertools import pairwise
+from pathlib import Path
 from typing import Annotated
 
 import numpy as np
@@ -182,7 +183,7 @@ def schedule(
         typer.Option(
             help="Optional ECSV file for a telescope with filter changes with a sequence of exposure times and inter-round delays. Column names must be 'Skymap', 'ExpTimes', and 'Cadences'."
         ),
-    ] = None,    
+    ] = None,
     nside: Annotated[int, typer.Option(help="HEALPix resolution")] = 512,
     max_fields: Annotated[
         int,
@@ -270,7 +271,7 @@ def schedule(
     \b
     4. Pre-set exposure times and inter-round delays. Exposure times and delays
         between consecutive visits of the same field are pre-set in a
-        provided ECSV file. This mode is selected if you repeat the 
+        provided ECSV file. This mode is selected if you repeat the
         --bandpass option and provide a file for the --filt-seqs option.
 
     \b
@@ -285,10 +286,12 @@ def schedule(
     preset_seqs = filt_seqs is not None
 
     # Extract exposure times and cadences from ECSV file, if any
-    if preset_seqs: 
+    if preset_seqs:
         filter_sequences = QTable.read(filt_seqs, format="ascii.ecsv")
         if len(filter_sequences) != 1:
-            filter_sequences = filter_sequences[filter_sequences["Skymap"] == skymap.name]
+            filter_sequences = filter_sequences[
+                filter_sequences["Skymap"] == Path(str(skymap.name)).name
+            ]
         exptime_seq_s = filter_sequences["ExpTimes"]._to_value(u.s).flatten()
         cadence_seq_s = filter_sequences["Cadences"]._to_value(u.s).flatten()
         assert len(exptime_seq_s) == (len(cadence_seq_s) + 1), (
@@ -300,9 +303,6 @@ def schedule(
         assert (len(cadence_seq_s) + 1) == visits, (
             "Number of inter-round delays must be exactly one less than the number of visits."
         )
-        assert np.all(exptime_seq_s >= exptime_min_s), (
-            "All values of exposure time must equal or exceed the specified minimum exposure time."
-        )
 
     # Successive visits cycle through the requested bandpasses, so that
     # --bandpass g --bandpass r over three visits gives g, r, g.
@@ -311,7 +311,7 @@ def schedule(
     ]
     if preset_seqs:
         visit_exptime_min_s = exptime_seq_s
-    else: 
+    else:
         visit_exptime_min_s = u.Quantity(
             [exptime_min[i % len(exptime_min)] for i in range(visits)]
         ).to_value(u.s)
@@ -321,7 +321,9 @@ def schedule(
         )
     filter_changes = [lhs != rhs for lhs, rhs in pairwise(visit_bandpasses)]
     if preset_seqs and not any(filter_changes):
-        raise NotImplementedError("Preset sequences of exposure times and delays can only be used if filter changes are present.")
+        raise NotImplementedError(
+            "Preset sequences of exposure times and delays can only be used if filter changes are present."
+        )
 
     with status("loading sky map"):
         hpx = HEALPix(nside, frame=ICRS(), order="nested")
@@ -577,6 +579,8 @@ def schedule(
                 ):
                     assert len(intervals) > 0
                     begin, end = intervals.T
+                    if not adaptive_exptime:
+                        exptime = exptime[:, np.newaxis]
                     if len(intervals) == 1:
                         model.add_constraints_(
                             time_visit_vars - begin - 0.5 * exptime >= 0
