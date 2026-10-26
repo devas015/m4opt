@@ -292,6 +292,7 @@ def schedule(
             filter_sequences = filter_sequences[
                 filter_sequences["Skymap"] == Path(skymap.name).stem
             ]
+        visits = filter_sequences['Visits']
         exptime_seq = np.array(filter_sequences["ExpTimes"]) * u.s 
         cadence_seq = np.array(filter_sequences["Cadences"]) * u.min
         exptime_seq_s = exptime_seq._to_value(u.s).flatten()
