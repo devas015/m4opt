@@ -290,10 +290,12 @@ def schedule(
         filter_sequences = QTable.read(filt_seqs, format="ascii.ecsv")
         if len(filter_sequences) != 1:
             filter_sequences = filter_sequences[
-                filter_sequences["Skymap"] == Path(str(skymap.name)).name
+                filter_sequences["Skymap"] == Path(skymap.name).stem
             ]
-        exptime_seq_s = filter_sequences["ExpTimes"]._to_value(u.s).flatten()
-        cadence_seq_s = filter_sequences["Cadences"]._to_value(u.s).flatten()
+        exptime_seq = np.array(filter_sequences["ExpTimes"]) * u.s 
+        cadence_seq = np.array(filter_sequences["Cadences"]) * u.min
+        exptime_seq_s = exptime_seq._to_value(u.s).flatten()
+        cadence_seq_s = cadence_seq._to_value(u.s).flatten()
         assert len(exptime_seq_s) == (len(cadence_seq_s) + 1), (
             "Number of exposure times and number of inter-round delays must be consistent."
         )
@@ -303,6 +305,8 @@ def schedule(
         assert (len(cadence_seq_s) + 1) == visits, (
             "Number of inter-round delays must be exactly one less than the number of visits."
         )
+
+        bandpass = filter_sequences['Filters']
 
     # Successive visits cycle through the requested bandpasses, so that
     # --bandpass g --bandpass r over three visits gives g, r, g.
