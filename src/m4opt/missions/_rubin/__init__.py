@@ -2,7 +2,7 @@ from importlib import resources
 
 import numpy as np
 from astropy import units as u
-from astropy.coordinates import EarthLocation
+from astropy.coordinates import AltAz, EarthLocation
 from regions import Regions
 
 from ... import skygrid
